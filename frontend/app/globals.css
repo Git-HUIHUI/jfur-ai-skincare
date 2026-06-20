@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 250 33% 98%;
+    --foreground: 222 47% 15%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 215 16% 47%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 15%;
+    --border: 214 32% 91%;
+    --primary: 208 50% 36%;
+    --primary-foreground: 210 40% 98%;
+    --accent: 42 50% 55%;
+    --accent-foreground: 42 50% 20%;
+    --radius: 0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-[hsl(214,32%,91%)];
+  }
+  body {
+    @apply bg-[hsl(250,33%,98%)] text-[hsl(222,47%,15%)];
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* Typewriter animation */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.typing-cursor::after {
+  content: "▍";
+  animation: blink 1s infinite;
+}
+
+/* Scrollbar styling */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(214, 15%, 85%);
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: hsl(214, 15%, 75%);
+}
+
+/* Card hover effect */
+.card-hover {
+  @apply transition-all duration-200 hover:shadow-md;
+}
+
+/* Markdown in messages */
+.message-content p {
+  margin-bottom: 0.5rem;
+}
+.message-content p:last-child {
+  margin-bottom: 0;
+}
+.message-content ul {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+  list-style-type: disc;
+}
+.message-content li {
+  margin-bottom: 0.25rem;
+}

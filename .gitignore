@@ -1,0 +1,21 @@
+node_modules/
+.next/
+.env
+.env.local
+*.pyc
+__pycache__/
+.pytest_cache/
+chroma_db/
+.venv/
+.env
+backend/uploads/
+*.log
+# Temp / debug files
+%TEMP%*
+nul
+page_content.html
+screenshot_*.png
+comparison_preview.png
+seedream_result.jpg
+compare_preview.js
+screenshot_script.js
