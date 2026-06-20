@@ -1,6 +1,6 @@
 """
 Node 4 — Effect Preview Generation (generate_preview)
-Input: user's original photo URL + improvement prompts from matched projects
+Input: user's original photo (base64 data URI or URL) + improvement prompts
 Output: AI-generated simulated effect image via 火山方舟 Seedream 4.5 (图生图)
 """
 
@@ -27,7 +27,7 @@ async def generate_preview(
 ) -> dict:
     """
     Generate a simulated post-treatment effect image using Seedream 4.5.
-    Requires a public image URL (not base64).
+    Accepts either a public URL or a data URI (data:image/jpeg;base64,...).
     If image_url is empty, skips generation gracefully.
     """
     if not image_url:

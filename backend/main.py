@@ -297,7 +297,7 @@ async def chat(
                 user_text = " ".join(text_parts)
             break
 
-    # Read image as base64 AND save to disk for Seedream public URL
+    # Build base64 data URI for Seedream 4.5 (supports data:image/...;base64,...)
     image_base64 = None
     image_url = ""
     if image and image.filename:
@@ -305,13 +305,15 @@ async def chat(
         image_bytes = await image.read()
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
-        # Save to uploads/ for public URL access (Seedream requires a URL)
-        safe_ext = Path(image.filename).suffix or ".jpg"
-        saved_name = f"{uuid.uuid4()}{safe_ext}"
-        saved_path = UPLOADS_DIR / saved_name
-        saved_path.write_bytes(image_bytes)
-        # Build public URL — in production replace localhost with your domain
-        image_url = f"http://localhost:8001/uploads/{saved_name}"
+        # Determine MIME type — Seedream requires lowercase format in the data URI prefix
+        fmt = Path(image.filename).suffix.lstrip(".").lower() or "jpg"
+        if fmt == "jpg":
+            fmt = "jpeg"
+        image_url = f"data:image/{fmt};base64,{image_base64}"
+
+        # Also save to uploads/ for debugging
+        saved_name = f"{uuid.uuid4()}.{fmt}"
+        (UPLOADS_DIR / saved_name).write_bytes(image_bytes)
 
     conv_state = {"thread_id": thread_id} if thread_id else {}
 

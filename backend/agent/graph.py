@@ -18,7 +18,7 @@ from agent.nodes.book_appointment import book_appointment
 class AgentState(TypedDict):
     # User input
     image_base64: str
-    image_url: str              # Public URL for Seedream 4.5 (saved from first upload)
+    image_url: str              # Base64 data URI or public URL for Seedream 4.5
     user_text: str
     # Conversation history
     messages: Annotated[Sequence[dict], lambda x, y: list(x) + list(y) if y else x]
