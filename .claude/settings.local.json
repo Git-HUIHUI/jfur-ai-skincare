@@ -44,7 +44,10 @@
       "Bash(git rm *)",
       "Bash(git check-ignore *)",
       "Bash(git commit -m '初始提交：晶肤AI美肤助手 v0.1 *)",
-      "WebFetch(domain:ark-content-generation-v2-cn-beijing.tos-cn-beijing.volces.com)"
+      "WebFetch(domain:ark-content-generation-v2-cn-beijing.tos-cn-beijing.volces.com)",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(taskkill //F //IM uvicorn.exe)",
+      "Skill(code-review)"
     ]
   }
 }

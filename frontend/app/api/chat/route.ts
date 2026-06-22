@@ -2,7 +2,7 @@
 import { NextRequest } from 'next/server'
 
 export async function POST(request: NextRequest) {
-  const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001'
+  const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 
   try {
     const formData = await request.formData()

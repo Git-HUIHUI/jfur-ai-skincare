@@ -4,8 +4,12 @@ Input: analysis result from node 1
 Output: targeted follow-up questions, waits for user response
 """
 
-from openai import OpenAI
+import logging
+from openai import AsyncOpenAI
 from config import DASHSCOPE_API_KEY, DASHSCOPE_BASE_URL, QWEN_TEXT_MODEL
+from utils import retry_async
+
+logger = logging.getLogger(__name__)
 
 
 FOLLOWUP_SYSTEM_PROMPT = """你是晶肤医美的AI美肤助手"小肤"。
@@ -27,6 +31,28 @@ FOLLOWUP_SYSTEM_PROMPT = """你是晶肤医美的AI美肤助手"小肤"。
 - 如果用户之前已经回答过相关内容，就不要再重复问"""
 
 
+async def _call_followup_api(check_msg: str) -> str:
+    """内部 API 调用函数，用于重试"""
+    client = AsyncOpenAI(
+        api_key=DASHSCOPE_API_KEY,
+        base_url=DASHSCOPE_BASE_URL,
+        timeout=60.0,
+    )
+
+    response = await client.chat.completions.create(
+        model=QWEN_TEXT_MODEL,
+        messages=[
+            {"role": "system", "content": FOLLOWUP_SYSTEM_PROMPT},
+            {"role": "user", "content": check_msg}
+        ],
+        stream=False,
+        temperature=0.7,
+        max_tokens=512
+    )
+
+    return response.choices[0].message.content
+
+
 async def ask_followup(analysis_result: str, user_reply: str) -> dict:
     """
     Generate follow-up questions based on the analysis.
@@ -37,12 +63,6 @@ async def ask_followup(analysis_result: str, user_reply: str) -> dict:
     - error_type: str (machine-readable error type if error)
     """
     try:
-        client = OpenAI(
-            api_key=DASHSCOPE_API_KEY,
-            base_url=DASHSCOPE_BASE_URL,
-            timeout=60.0,
-        )
-
         # If user has just replied to previous follow-up, check if they want to proceed
         if user_reply:
             # Fast-path: strong confirmation keywords → skip LLM check, force confirmed
@@ -62,6 +82,7 @@ async def ask_followup(analysis_result: str, user_reply: str) -> dict:
 
             if force_confirm:
                 # Build a quick confirmation summary without an extra LLM call
+                logger.info("用户快速确认需求")
                 return {
                     "confirmed": True,
                     "message": f"用户确认了需求：{user_reply}",
@@ -92,38 +113,57 @@ async def ask_followup(analysis_result: str, user_reply: str) -> dict:
                 f"以JSON格式回复：{{\"confirmed\": false, \"message\": \"你的追问内容\"}}"
             )
 
-        response = client.chat.completions.create(
-            model=QWEN_TEXT_MODEL,
-            messages=[
-                {"role": "system", "content": FOLLOWUP_SYSTEM_PROMPT},
-                {"role": "user", "content": check_msg}
-            ],
-            stream=False,
-            temperature=0.7,
-            max_tokens=512
-        )
+        logger.info("开始生成追问")
+        raw_content = await retry_async(_call_followup_api, check_msg)
+        logger.info(f"追问生成完成，原始内容: {repr(raw_content[:200])}")  # 加日志
 
         import json
         import re
-        raw_content = response.choices[0].message.content
 
         # Strip markdown code fences if present (LLM sometimes wraps JSON in ```json ... ```)
         # Also handle leading/trailing whitespace and extra text
         json_match = re.search(r'\{.*\}', raw_content, re.DOTALL)
         if json_match:
             try:
-                result = json.loads(json_match.group(0))
-            except json.JSONDecodeError:
-                result = {"confirmed": False, "message": raw_content}
+                parsed = json.loads(json_match.group(0))
+                logger.info(f"解析到的 JSON: {repr(parsed)}")
+                # 确保 message 是纯字符串，避免把 JSON 串发给前端
+                message = parsed.get("message", "")
+                # 如果 message 里面还有嵌套 JSON，再解析一次
+                if isinstance(message, str) and message.strip().startswith('{'):
+                    try:
+                        nested = json.loads(message)
+                        message = nested.get("message", message)
+                    except:
+                        pass
+                # 严格确保 message 是字符串
+                if not isinstance(message, str):
+                    message = str(message)
+                result = {
+                    "confirmed": bool(parsed.get("confirmed", False)),
+                    "message": message,
+                    "error": False,
+                }
+                logger.info(f"最终返回结果: confirmed={result['confirmed']}, message={repr(result['message'][:200])}")
+            except json.JSONDecodeError as e:
+                logger.warning(f"JSON 解析失败: {e}, 使用原始内容")
+                result = {"confirmed": False, "message": str(raw_content), "error": False}
         else:
-            result = {"confirmed": False, "message": raw_content}
+            logger.info("没有找到 JSON，使用原始内容")
+            result = {"confirmed": False, "message": str(raw_content), "error": False}
 
-        result["error"] = False
+        # 【关键修复】当 user_reply 为空时（第一次追问），强制 confirmed=False，防止 LLM 误判
+        if not user_reply:
+            result["confirmed"] = False
+
+        # 最后安全检查，确保 message 是可以显示的字符串
+        if not isinstance(result["message"], str):
+            result["message"] = str(result["message"])
+
         return result
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("追问生成失败")
         error_type = type(e).__name__
         return {
             "confirmed": False,

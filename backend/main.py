@@ -8,9 +8,11 @@ import json
 import asyncio
 import uuid
 import os
+import logging
 from pathlib import Path
 from typing import List, Optional
-from fastapi import FastAPI, File, Form, UploadFile
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,12 +20,85 @@ from pydantic import BaseModel
 
 from rag.chroma_store import init_knowledge_base
 from agent.graph import get_agent
+from utils.cleanup import cleanup_old_files, periodic_cleanup_task
+from config import (
+    validate_env,
+    MAX_IMAGE_SIZE_MB,
+    ALLOWED_IMAGE_TYPES,
+    CORS_ALLOWED_ORIGINS,
+)
 
-app = FastAPI(title="晶肤AI美肤助手 API", version="0.1.0")
+# ========== 日志配置 ==========
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+# 后台任务引用
+_cleanup_task = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI 生命周期管理"""
+    global _cleanup_task
+
+    logger.info("=" * 60)
+    logger.info("🚀 晶肤AI美肤助手启动中...")
+    logger.info("=" * 60)
+
+    # 验证环境变量
+    if not validate_env():
+        logger.warning("环境变量未完全配置，部分功能可能不可用")
+    else:
+        logger.info("✅ 环境变量验证通过")
+
+    # 初始化知识库
+    try:
+        count = init_knowledge_base()
+        logger.info(f"✅ ChromaDB 初始化完成，共 {count} 个项目")
+    except Exception as e:
+        logger.exception("ChromaDB 初始化失败")
+
+    # 启动图片清理后台任务（每小时检查一次，保留24小时内的文件）
+    _cleanup_task = asyncio.create_task(
+        periodic_cleanup_task(UPLOADS_DIR, hours=24, interval_seconds=3600)
+    )
+    logger.info("✅ 定时清理任务已启动")
+
+    logger.info("=" * 60)
+    logger.info("✅ 服务启动完成")
+    logger.info("=" * 60)
+
+    yield
+
+    # 关闭时清理
+    if _cleanup_task:
+        _cleanup_task.cancel()
+        try:
+            await _cleanup_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("✅ 定时清理任务已停止")
+
+
+app = FastAPI(
+    title="晶肤AI美肤助手 API",
+    version="0.1.0",
+    lifespan=lifespan
+)
+
+# 处理 CORS 配置
+def get_cors_origins():
+    if CORS_ALLOWED_ORIGINS == "*":
+        return ["*"]
+    # 逗号分隔多个 origin
+    return [o.strip() for o in CORS_ALLOWED_ORIGINS.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -259,13 +334,46 @@ async def run_agent_events(image_base64: str | None, image_url: str, user_text: 
             }
 
     except Exception as e:
+        logger.exception("Agent execution error")
         yield {
             "event": "error",
             "data": {"type": "error", "content": f"处理出错：{str(e)}"}
         }
 
 
-# ===== API Endpoints =====
+# ========== 图片验证辅助函数 ==========
+async def validate_image(image: UploadFile) -> bytes:
+    """
+    验证上传的图片：类型和大小
+    返回: 图片字节数据
+    抛出: HTTPException 如果验证失败
+    """
+    if not image:
+        return b""
+
+    # 验证文件类型
+    content_type = image.content_type or ""
+    if content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的图片类型。支持类型：{', '.join(ALLOWED_IMAGE_TYPES)}"
+        )
+
+    # 读取并验证大小
+    image_bytes = await image.read()
+    size_mb = len(image_bytes) / (1024 * 1024)
+
+    if size_mb > MAX_IMAGE_SIZE_MB:
+        raise HTTPException(
+            status_code=413,
+            detail=f"图片大小超过限制（最大 {MAX_IMAGE_SIZE_MB}MB）"
+        )
+
+    logger.info(f"图片验证通过: {content_type}, {size_mb:.2f}MB")
+    return image_bytes
+
+
+# ========== API Endpoints ==========
 @app.post("/api/chat")
 async def chat(
     messages: str = Form(...),
@@ -300,20 +408,27 @@ async def chat(
     # Build base64 data URI for Seedream 4.5 (supports data:image/...;base64,...)
     image_base64 = None
     image_url = ""
-    if image and image.filename:
-        import base64
-        image_bytes = await image.read()
-        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+    image_bytes = b""
+    try:
+        if image and image.filename:
+            image_bytes = await validate_image(image)
+            import base64
+            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
-        # Determine MIME type — Seedream requires lowercase format in the data URI prefix
-        fmt = Path(image.filename).suffix.lstrip(".").lower() or "jpg"
-        if fmt == "jpg":
-            fmt = "jpeg"
-        image_url = f"data:image/{fmt};base64,{image_base64}"
+            # Determine MIME type — Seedream requires lowercase format in the data URI prefix
+            fmt = Path(image.filename).suffix.lstrip(".").lower() or "jpg"
+            if fmt == "jpg":
+                fmt = "jpeg"
+            image_url = f"data:image/{fmt};base64,{image_base64}"
 
-        # Also save to uploads/ for debugging
-        saved_name = f"{uuid.uuid4()}.{fmt}"
-        (UPLOADS_DIR / saved_name).write_bytes(image_bytes)
+            # Also save to uploads/ for debugging
+            saved_name = f"{uuid.uuid4()}.{fmt}"
+            (UPLOADS_DIR / saved_name).write_bytes(image_bytes)
+    except HTTPException as e:
+        return StreamingResponse(
+            sse_stream([{"event": "error", "data": {"type": "error", "content": e.detail}}]),
+            media_type="text/event-stream"
+        )
 
     conv_state = {"thread_id": thread_id} if thread_id else {}
 
@@ -324,7 +439,7 @@ async def chat(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
-        }
+        },
     )
 
 
@@ -351,17 +466,53 @@ async def chat_continue(request: ChatRequest):
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
-        }
+        },
     )
 
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "service": "晶肤AI美肤助手"}
+    """
+    健康检查端点
+    检查：服务状态、数据库连接、环境变量
+    """
+    checks = {
+        "status": "ok",
+        "service": "晶肤AI美肤助手",
+        "checks": {}
+    }
+
+    # 检查环境变量
+    try:
+        from config import DASHSCOPE_API_KEY
+        checks["checks"]["env"] = "ok" if DASHSCOPE_API_KEY else "missing"
+    except Exception:
+        checks["checks"]["env"] = "error"
+
+    # 检查数据库
+    try:
+        from rag.chroma_store import get_chroma_collection
+        col = get_chroma_collection()
+        checks["checks"]["chromadb"] = "ok"
+    except Exception:
+        checks["checks"]["chromadb"] = "error"
+
+    return checks
 
 
-@app.on_event("startup")
-async def startup():
-    """Initialize knowledge base on startup."""
-    count = init_knowledge_base()
-    print(f"[OK] ChromaDB initialized with {count} projects")
+# 添加手动清理 API 端点
+@app.post("/api/admin/cleanup")
+async def manual_cleanup(hours: int = 24, dry_run: bool = False):
+    """
+    手动触发图片清理
+
+    Args:
+        hours: 保留多少小时内的文件
+        dry_run: 试运行模式，只统计不删除
+    """
+    result = cleanup_old_files(UPLOADS_DIR, hours, dry_run)
+    return {
+        "status": "ok",
+        "message": "清理完成" if not dry_run else "试运行完成",
+        "result": result
+    }

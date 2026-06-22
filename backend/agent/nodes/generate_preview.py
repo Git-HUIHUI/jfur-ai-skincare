@@ -6,8 +6,12 @@ Output: AI-generated simulated effect image via 火山方舟 Seedream 4.5 (图�
 
 import os
 import uuid
+import logging
 import aiohttp
 from config import ARK_API_KEY, ARK_BASE_URL, ARK_IMAGE_MODEL
+from utils import retry_async
+
+logger = logging.getLogger(__name__)
 
 
 PREVIEW_PROMPT_TEMPLATE = (
@@ -17,6 +21,40 @@ PREVIEW_PROMPT_TEMPLATE = (
 )
 
 SEEDREAM_ENDPOINT = f"{ARK_BASE_URL}/images/generations"
+
+
+async def _call_preview_api(
+    prompt: str,
+    image_url: str,
+    n: int,
+    size: str,
+) -> list[str]:
+    """内部 API 调用函数，用于重试"""
+    payload = {
+        "model": ARK_IMAGE_MODEL,
+        "prompt": prompt,
+        "image": image_url,
+        "size": size,
+        "watermark": False,
+        "response_format": "url",
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            SEEDREAM_ENDPOINT,
+            headers={
+                "Authorization": f"Bearer {ARK_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=aiohttp.ClientTimeout(total=120),
+        ) as response:
+            if response.status == 200:
+                data = await response.json()
+                return [img["url"] for img in data.get("data", [])]
+            else:
+                body = await response.text()
+                raise Exception(f"HTTP {response.status}: {body}")
 
 
 async def generate_preview(
@@ -51,47 +89,19 @@ async def generate_preview(
     try:
         prompt = PREVIEW_PROMPT_TEMPLATE.format(improvements=improvements)
 
-        payload = {
-            "model": ARK_IMAGE_MODEL,
-            "prompt": prompt,
-            "image": image_url,
-            "size": size,
-            "watermark": False,
-            "response_format": "url",
+        logger.info("开始生成效果图")
+        urls = await retry_async(_call_preview_api, prompt, image_url, n, size)
+        logger.info("效果图生成完成")
+
+        return {
+            "success": True,
+            "image_urls": urls,
+            "message": "效果模拟图已生成（基于您的照片，Seedream 4.5）",
+            "error": False,
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                SEEDREAM_ENDPOINT,
-                headers={
-                    "Authorization": f"Bearer {ARK_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=120),
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    urls = [img["url"] for img in data.get("data", [])]
-                    return {
-                        "success": True,
-                        "image_urls": urls,
-                        "message": "效果模拟图已生成（基于您的照片，Seedream 4.5）",
-                        "error": False,
-                    }
-                else:
-                    body = await response.text()
-                    return {
-                        "success": False,
-                        "image_urls": [],
-                        "message": f"效果图生成失败（{_http_status_text(response.status)}）。模拟效果请以医生面诊为准。",
-                        "error": True,
-                        "error_type": f"generate_preview/HTTP_{response.status}",
-                    }
-
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("效果图生成失败")
 
         error_type = type(e).__name__
         error_messages = {

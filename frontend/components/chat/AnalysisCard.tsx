@@ -8,8 +8,25 @@ export function AnalysisCard({ message }: { message: Message }) {
   const [displayText, setDisplayText] = useState("")
   const [isTyping, setIsTyping] = useState(true)
 
+  // 安全处理内容 - 防止循环引用
+  const safeContent = (() => {
+    if (typeof message.content === 'string') return message.content
+    try {
+      const seen = new WeakSet()
+      return JSON.stringify(message.content, (key, value) => {
+        if (typeof value === 'object' && value !== null) {
+          if (seen.has(value)) return '[Circular]'
+          seen.add(value)
+        }
+        return value
+      }, 2)
+    } catch {
+      return '[无法显示的内容]'
+    }
+  })()
+
   useEffect(() => {
-    const text = message.content
+    const text = safeContent
     let i = 0
     setDisplayText("")
     const timer = setInterval(() => {
@@ -22,7 +39,7 @@ export function AnalysisCard({ message }: { message: Message }) {
       }
     }, 20)
     return () => clearInterval(timer)
-  }, [message.content])
+  }, [safeContent])
 
   return (
     <div className="flex items-start gap-2.5">

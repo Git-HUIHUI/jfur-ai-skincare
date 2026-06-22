@@ -6,8 +6,12 @@ Output: surface-level skin feature description (NO medical diagnosis)
 
 import base64
 import traceback
-from openai import OpenAI
+import logging
+from openai import OpenAI, AsyncOpenAI
 from config import DASHSCOPE_API_KEY, DASHSCOPE_BASE_URL, QWEN_VL_MODEL, QWEN_TEXT_MODEL
+from utils import retry_async
+
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """你是晶肤医美的AI美肤助手，名字叫"小肤"。
@@ -34,6 +38,28 @@ SYSTEM_PROMPT = """你是晶肤医美的AI美肤助手，名字叫"小肤"。
 """
 
 
+async def _call_analyze_api(has_image: bool, user_content, model: str) -> str:
+    """内部 API 调用函数，用于重试"""
+    client = AsyncOpenAI(
+        api_key=DASHSCOPE_API_KEY,
+        base_url=DASHSCOPE_BASE_URL,
+        timeout=60.0,
+    )
+
+    response = await client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_content}
+        ],
+        stream=False,
+        temperature=0.7,
+        max_tokens=1024
+    )
+
+    return response.choices[0].message.content
+
+
 async def analyze_skin(image_base64: str, user_text: str) -> dict:
     """
     Call Qwen-VL-Max (or Qwen text model if no image) to analyze the user's skin.
@@ -43,12 +69,6 @@ async def analyze_skin(image_base64: str, user_text: str) -> dict:
     - content: str (the analysis text or error message)
     """
     try:
-        client = OpenAI(
-            api_key=DASHSCOPE_API_KEY,
-            base_url=DASHSCOPE_BASE_URL,
-            timeout=60.0,
-        )
-
         has_image = bool(image_base64)
 
         if has_image:
@@ -75,23 +95,15 @@ async def analyze_skin(image_base64: str, user_text: str) -> dict:
             )
             model = QWEN_TEXT_MODEL
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content}
-            ],
-            stream=False,
-            temperature=0.7,
-            max_tokens=1024
-        )
+        logger.info(f"开始皮肤分析 (has_image={has_image})")
+        content = await retry_async(_call_analyze_api, has_image, user_content, model)
+        logger.info("皮肤分析完成")
 
-        content = response.choices[0].message.content
         return {"error": False, "content": content}
 
     except Exception as e:
         error_type = type(e).__name__
-        traceback.print_exc()
+        logger.exception("皮肤分析失败")
 
         # Map known error types to user-friendly messages
         error_messages = {

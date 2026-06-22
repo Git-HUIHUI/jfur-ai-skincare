@@ -44,7 +44,8 @@ class AgentState(TypedDict):
 async def node_analyze(state: AgentState) -> AgentState:
     """Node 1: Analyze skin from uploaded photo."""
     image_url = state.get("image_url", "")  # Preserve for generate_preview downstream
-    result = await analyze_skin(state["image_base64"], state.get("user_text", ""))
+    has_image = bool(state.get("image_base64"))
+    result = await analyze_skin(state.get("image_base64", ""), state.get("user_text", ""))
     if result.get("error"):
         return {
             "analysis_result": result["content"],
@@ -60,7 +61,7 @@ async def node_analyze(state: AgentState) -> AgentState:
         "analysis_result": result["content"],
         "image_url": image_url,  # Preserve through checkpoint
         "current_step": "analyze",
-        "needs_followup": True,
+        "needs_followup": has_image,  # 只有有照片时才需要追问
         "messages": [
             {"role": "ai", "type": "analysis", "content": result["content"]}
         ]
@@ -247,6 +248,13 @@ def route_after_followup(state: AgentState) -> str:
     return END
 
 
+def route_after_analyze(state: AgentState) -> str:
+    """Route: decide whether to ask followup or end after analyze"""
+    if state.get("needs_followup", False):
+        return "ask_followup"
+    return END
+
+
 def should_skip_preview(state: AgentState) -> str:
     """Route: skip preview if no image available or recommendations empty"""
     if state.get("approved", False):
@@ -289,7 +297,11 @@ async def build_graph():
         route_entry,
         {"analyze": "analyze", "ask_followup": "ask_followup"}
     )
-    workflow.add_edge("analyze", "ask_followup")
+    workflow.add_conditional_edges(
+        "analyze",
+        route_after_analyze,
+        {"ask_followup": "ask_followup", END: END}
+    )
 
     # Conditional routing from ask_followup:
     # - If confirmed → proceed to match_product
