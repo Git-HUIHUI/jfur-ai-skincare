@@ -79,7 +79,8 @@
       "Bash(npx --version)",
       "Bash(node -e \"require\\('localtunnel'\\); console.log\\('lt loaded'\\)\")",
       "Bash(node -e ' *)",
-      "Bash(timeout 30 node -e ' *)"
+      "Bash(timeout 30 node -e ' *)",
+      "Bash(tasklist)"
     ]
   }
 }
