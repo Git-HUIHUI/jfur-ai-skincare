@@ -47,7 +47,9 @@
       "WebFetch(domain:ark-content-generation-v2-cn-beijing.tos-cn-beijing.volces.com)",
       "Bash(taskkill //F //IM python.exe)",
       "Bash(taskkill //F //IM uvicorn.exe)",
-      "Skill(code-review)"
+      "Skill(code-review)",
+      "Bash(git commit *)",
+      "Bash(git remote *)"
     ]
   }
 }

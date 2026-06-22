@@ -19,3 +19,5 @@ comparison_preview.png
 seedream_result.jpg
 compare_preview.js
 screenshot_script.js
+# Deploy files with secrets
+deploy/server-commands.txt

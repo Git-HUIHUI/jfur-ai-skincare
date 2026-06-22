@@ -1,0 +1,45 @@
+services:
+  # ========== Nginx 反向代理 ==========
+  nginx:
+    image: nginx:alpine
+    container_name: jfur-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+  # ========== 前端 Next.js ==========
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+    container_name: jfur-frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # ========== 后端 FastAPI ==========
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: jfur-backend
+    env_file:
+      - ../backend/.env
+    environment:
+      - CHROMA_DB_PATH=/data/chroma_db
+      - UPLOADS_BASE_URL=http://8.154.35.206/uploads
+    volumes:
+      - jfur_data:/data
+      - jfur_uploads:/app/uploads
+    restart: unless-stopped
+
+volumes:
+  jfur_data:
+  jfur_uploads:
