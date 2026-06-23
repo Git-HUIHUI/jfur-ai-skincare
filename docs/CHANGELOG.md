@@ -1,5 +1,25 @@
 # 项目修改记录 (CHANGELOG)
 
+## 2026-06-23 - ngrok 公网访问修复
+
+### 修复问题
+- **公网访问后端连接失败** — 远程用户浏览器直连 `localhost:8001` 会连到自己的电脑，导致「无法连接到后端服务」
+- 前端改为请求同源 `/api/chat`，由 Next.js 服务端代理转发到本机 FastAPI
+
+### 文档更新
+- `README.md` — 新增「公网分享与 API 代理」章节
+- `启动指南.md` — 补充原理说明、环境变量、故障排查与自检命令
+- `frontend/.env.example` — 改用 `BACKEND_URL`，注明勿用 `NEXT_PUBLIC_API_URL`
+
+### 文件修改清单
+
+| 文件路径 | 说明 |
+|---------|-----|
+| `frontend/app/page.tsx` | 浏览器统一走 `/api/chat` |
+| `frontend/app/api/chat/route.ts` | 服务端代理读取 `BACKEND_URL` |
+| `frontend/.env.example` | 环境变量说明更新 |
+| `start_ngrok.py` | 增加公网分享提示 |
+
 ## 2026-06-21 - 优化和修复
 
 ### 新增功能

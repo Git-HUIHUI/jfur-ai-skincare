@@ -106,10 +106,18 @@ npm install
 
 # 配置环境变量
 cp .env.example .env.local
-# 编辑 .env.local，配置 API URL
+# 编辑 .env.local：BACKEND_URL 供服务端代理使用，默认 http://localhost:8001 即可
 
 # 启动（默认 http://localhost:3000）
 npm run dev
+```
+
+### 3. ngrok 公网分享（可选）
+
+详细操作见 [启动指南.md](./启动指南.md)。
+
+```bash
+python start_ngrok.py
 ```
 
 ## 功能流程
@@ -134,25 +142,9 @@ npm run dev
                                           （门店 + 预约引导）
 ```
 
-## 优化改进
+## 改进记录
 
-### 2026-06-20 核心改动
-
-1. **LangGraph 真正接管编排** — `main.py` 改用 `app_graph.astream()`，图决定路由和状态，不再手动调用 node
-2. **会话持久化** — `MemorySaver` → `AsyncSqliteSaver`，SQLite 存 checkpoint，重启不丢
-3. **组件拆分** — `page.tsx` 639 行 → 9 个独立组件 + `lib/types.ts`
-4. **细粒度错误处理** — 5 个 node 全加 try/except，返回结构化 `{error, error_type, ...}`
-5. **图生图升级** — `wanx-v1` → `Seedream 4.5`，传入用户照片做真实效果模拟
-
-### 新增优化项
-
-1. **环境变量验证** — 启动时自动检查必需配置，缺失时友好提示
-2. **图片上传限制** — 限制图片类型（jpeg/png/webp）和大小（10MB）
-3. **API 重试机制** — 所有外部 API 调用自动重试（默认 2 次）
-4. **完善的健康检查** — `/api/health` 检查数据库、环境变量等状态
-5. **统一的日志系统** — 结构化日志输出，便于调试
-6. **错误边界组件** — 前端错误优雅降级
-7. **配置示例文件** — `.env.example` 方便快速配置
+详见 [docs/CHANGELOG.md](./docs/CHANGELOG.md)。
 
 ## API 端点
 

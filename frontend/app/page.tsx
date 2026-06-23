@@ -15,7 +15,9 @@ import { StatusBubble } from "@/components/chat/StatusBubble"
 import { EmptyState } from "@/components/chat/EmptyState"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_VERCEL_URL || ""
+// 客户端统一走 Next.js 同源代理 /api/chat，由服务端转发到本机后端。
+// 公网（ngrok）访问时若直接请求 localhost:8001，远程用户的浏览器会连到自己的电脑，必然失败。
+const CHAT_API = "/api/chat"
 
 // ===== Main Page =====
 export default function Home() {
@@ -53,7 +55,15 @@ export default function Home() {
       URL.revokeObjectURL(imagePreview)
       setImagePreview(null)
     }
-    // Reset file input so onChange fires for the same file next time
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
+    }
+  }
+
+  // 发送后清空输入区，但不 revoke blob URL（消息气泡仍在引用）
+  const clearInputImage = () => {
+    setUploadedImage(null)
+    setImagePreview(null)
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
     }
@@ -244,20 +254,23 @@ export default function Home() {
       formData.append("thread_id", threadId)
     }
 
-    removeImage()
+    clearInputImage()
 
     try {
-      const response = await fetch(`${API_URL}/api/chat`, {
+      const response = await fetch(CHAT_API, {
         method: "POST",
         body: formData,
       })
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
       await processSSE(response)
     } catch (err) {
       setMessages(prev => [...prev, {
         id: crypto.randomUUID(),
         role: "system",
         type: "text",
-        content: `❌ 网络错误：无法连接到后端服务。请确认后端已启动: ${API_URL}`,
+        content: "❌ 网络错误：无法连接到后端服务。请确认本机后端已在 8001 端口启动（uvicorn main:app --port 8001）。",
       }])
       setIsLoading(false)
       setStatusText("")

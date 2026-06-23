@@ -1,4 +1,3 @@
-import Image from "next/image"
 import type { Message } from "@/lib/types"
 
 export function UserBubble({ message }: { message: Message }) {
@@ -30,7 +29,12 @@ export function UserBubble({ message }: { message: Message }) {
       <div className="max-w-[80%] bg-[#2B5F8A] text-white rounded-2xl rounded-br-md px-4 py-2.5 shadow-sm">
         {safeImagePreview && (
           <div className="mb-2 rounded-lg overflow-hidden">
-            <Image src={safeImagePreview} alt="上传的照片" width={200} height={200} className="w-full h-auto" />
+            {/* blob: URL 用原生 img，Next/Image 不支持本地 object URL */}
+            <img
+              src={safeImagePreview}
+              alt="上传的照片"
+              className="w-full h-auto max-w-[200px] rounded-lg"
+            />
           </div>
         )}
         <p className="text-sm leading-relaxed whitespace-pre-wrap">{safeContent}</p>
